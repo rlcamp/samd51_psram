@@ -184,7 +184,7 @@ void psram_write(const void * const data, const unsigned long address, const siz
     if (busy) {
         /* if multiple consecutive writes are attempted, they will block, but the calling code
          wouldn't be in an interrupt handler in that scenario */
-        while (deferred_write_data) __WFI();
+        while (deferred_write_data);
 
         deferred_write_address = address;
         deferred_write_count = count;
