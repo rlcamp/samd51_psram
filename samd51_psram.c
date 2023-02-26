@@ -279,6 +279,9 @@ void psram_read(void * const data, const unsigned long address, const size_t cou
         }
     };
 
+    /* need to ensure descriptors are written to sram before enabling channels */
+    __DSB();
+
     /* nothing happens immediately when this is enabled */
     DMAC->Channel[ICHANNEL_SPI_READ].CHCTRLA.bit.ENABLE = 1;
 
