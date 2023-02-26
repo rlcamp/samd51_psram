@@ -9,6 +9,8 @@ extern "C" {
  the given data pointer. the caller can then do something like "while (busy) __WFI();" if it needs
  to efficiently wait for the transaction to finish before some other operation */
 
+void psram_init(void);
+
 /* this function will not block as long as not more than one transaction (read or write) is already
  in progress. it is safe to call this from an interrupt as long as the interrupt fires not more
  frequently than the expected length of the write and of any already-in-progress read */

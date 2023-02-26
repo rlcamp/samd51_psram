@@ -5,11 +5,9 @@
 #define ICHANNEL_SPI_WRITE 3
 #define ICHANNEL_SPI_READ 4
 
-static void init(void) {
-    static char initted = 0;
-    if (initted) return;
-    initted = 1;
+__attribute__((weak, aligned(16))) SECTION_DMAC_DESCRIPTOR DmacDescriptor dmac_descriptors[8] = { 0 }, dmac_writeback[8] = { 0 };
 
+void psram_init(void) {
     /* sercom3 pad 2 is miso, pad 1 is sck, pad 3 is mosi. hw cs is not used */
 
     /* configure pin PA20 (arduino pin 10 on the feather m4) as output for cs pin */
@@ -71,9 +69,8 @@ static void init(void) {
         DMAC->CTRL.bit.DMAENABLE = 0;
         DMAC->CTRL.bit.SWRST = 1;
 
-        __attribute__((aligned(16))) SECTION_DMAC_DESCRIPTOR static DmacDescriptor descriptor[8] = { 0 }, writeback[8] = { 0 };
-        DMAC->BASEADDR.bit.BASEADDR = (unsigned long)descriptor;
-        DMAC->WRBADDR.bit.WRBADDR = (unsigned long)writeback;
+        DMAC->BASEADDR.bit.BASEADDR = (unsigned long)dmac_descriptors;
+        DMAC->WRBADDR.bit.WRBADDR = (unsigned long)dmac_writeback;
 
         /* re-enable dmac */
         DMAC->CTRL.reg = DMAC_CTRL_DMAENABLE | DMAC_CTRL_LVLEN(0xF);
@@ -128,9 +125,6 @@ static volatile char * deferred_write_busy_p;
 static void psram_write_unlocked(const void * const data, const unsigned long address, const size_t count, volatile char * busy_p) {
     busy = 1;
     write_busy_p = busy_p;
-
-    /* one-time init */
-    init();
 
     /* make sure the spi receiver is disabled */
     SERCOM3->SPI.CTRLB.bit.RXEN = 0;
@@ -205,9 +199,6 @@ void psram_read(void * const data, const unsigned long address, const size_t cou
 
     busy = 1;
     read_busy_p = busy_p;
-
-    /* one-time init */
-    init();
 
     /* enable spi peripheral */
     SERCOM3->SPI.CTRLA.bit.ENABLE = 1;

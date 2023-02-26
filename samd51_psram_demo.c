@@ -11,6 +11,9 @@ static unsigned long prev;
 void setup() {
     pinMode(LED_BUILTIN, OUTPUT);
     printf("hello\r\n");
+
+    psram_init();
+
     prev = millis();
 }
 
