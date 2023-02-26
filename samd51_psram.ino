@@ -4,7 +4,7 @@
 #define PSRAM_SIZE 8388608U
 
 /* keep a tally of unexpected conditions we can print from the main thread */
-static size_t fail_count = 0;
+static size_t write_fail_count = 0;
 
 /* note this is NOT volatile, readers need to explicitly use __DSB() prior to reading it */
 static size_t write_finished;
@@ -26,7 +26,7 @@ static void write_start(void) {
      no point in allowing more than one to be deferred */
     if (-1 == psram_write(data_out, address, sizeof(data_out), &write_finished)) {
         write_finished += sizeof(data_out);
-        fail_count++;
+        write_fail_count++;
     }
 }
 
@@ -90,33 +90,38 @@ void loop() {
 
     static char data_in[2048];
 
-    static unsigned fail_count_acknowledged;
+    static unsigned write_fail_count_acknowledged;
 
-    if (__DSB(), fail_count != fail_count_acknowledged) {
-        fail_count_acknowledged = fail_count;
-        Serial.printf("%s: fail count now %u\r\n", __func__, fail_count_acknowledged);
+    /* grab local copies of the variables being updated by interrupts */
+    __DSB();
+    const size_t write_finished_now = write_finished;
+    const size_t read_finished_now = read_finished;
+    const size_t write_fail_count_now = write_fail_count;
+
+    if (write_fail_count_now != write_fail_count_acknowledged) {
+        write_fail_count_acknowledged = write_fail_count_now;
+        Serial.printf("%s: fail count now %u\r\n", __func__, write_fail_count_acknowledged);
     }
 
     /* if we had initiated a read and it is now finished... */
-    if (__DSB(), read_acknowledged != read_finished) {
+    if (read_acknowledged != read_finished_now) {
+        read_acknowledged = read_finished_now;
+
         static unsigned counter = 0;
         Serial.printf("%s: expected %u, read back: \"%s\"\r\n\r\n", __func__, counter++, data_in);
-
-        read_acknowledged = read_finished;
     }
 
-    __DSB();
-    const size_t write_finished_now = write_finished;
-
+    /* if we know we have fallen too far behind to catch up, skip some and print a warning */
     if (read_acknowledged == read_started && write_finished_now - read_started > PSRAM_SIZE - 2 * sizeof(data_in)) {
-        read_started = write_finished_now - 2 * sizeof(data_in) - PSRAM_SIZE;
-        Serial.printf("%s: reader fell too far behind, skipping %u blocks\r\n", (read_started - read_finished) / sizeof(data_in));
+        const size_t skipped_count = (write_finished_now - 2 * sizeof(data_in) - PSRAM_SIZE) - read_started;
+        Serial.printf("%s: reader fell too far behind, skipping %u blocks\r\n", skipped_count / sizeof(data_in));
+        read_started += skipped_count;
         read_finished = read_started;
         read_acknowledged = read_started;
     }
 
     /* if the previous read has finished, and the writer has finished a newer write... */
-    if (__DSB(), read_acknowledged == read_started && read_started != write_finished) {
+    if (read_acknowledged == read_started && read_started != write_finished_now) {
         /* put some text in the buffer to show if the transaction fails */
         snprintf(data_in, sizeof(data_in), "fail");
 
@@ -127,8 +132,8 @@ void loop() {
 
         psram_read(data_in, address, sizeof(data_in), &read_finished);
 
-        Serial.printf("%s: %u, %u, psram_read() returned in %lu us\r\n", __func__,
-            (unsigned)read_started, (unsigned)write_finished, micros() - micros_before_read);
+        Serial.printf("%s: psram_read(%u) returned in %lu us\r\n", __func__,
+            (unsigned)read_started, micros() - micros_before_read);
     }
 
     /* wait for something to change */
