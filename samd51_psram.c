@@ -326,7 +326,7 @@ void SERCOM3_1_Handler(void) {
     /* disable and clear the txc interrupt */
     SERCOM3->SPI.INTENCLR.bit.TXC = 1;
     NVIC_DisableIRQ(SERCOM3_1_IRQn);
-    SERCOM3->SPI.INTFLAG.bit.TXC = 1;
+    SERCOM3->SPI.INTFLAG.reg = SERCOM_SPI_INTFLAG_TXC;
 
     /* raise ss pin */
     PORT->Group[0].OUTSET.reg = 1U << 20;
