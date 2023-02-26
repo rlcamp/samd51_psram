@@ -1,54 +1,75 @@
+/* arduino-based demo of the use of psram as a hard-to-soft-realtime buffer */
 #include "samd51_psram.h"
 
-static size_t write_started, read_started;
+#define PSRAM_SIZE 8388608U
 
-/* note these are NOT volatile, when spinning on them a __DSB() should be included in the loop */
-static size_t write_finished, read_finished;
+/* keep a tally of unexpected conditions we can print from the main thread */
+static size_t fail_count = 0;
 
-static char data_out[1024], data_in[1024];
+/* note this is NOT volatile, readers need to explicitly use __DSB() prior to reading it */
+static size_t write_finished;
 
 static void write_start(void) {
+    static char data_out[2048];
+
     static unsigned counter = 0;
     snprintf(data_out, sizeof(data_out), "pass %u", counter++);
 
-    const unsigned address = write_started % 8388608;
+    static size_t write_started = 0;
+    const unsigned address = write_started % PSRAM_SIZE;
     write_started += sizeof(data_out);
 
-    const unsigned long micros_before_write = micros();
-
-    psram_write(data_out, address, sizeof(data_out), &write_finished);
-
-    Serial.printf("%s: psram_write() returned in %lu us\r\n", __func__, micros() - micros_before_write);
+    /* attempt to enqueue a write. this will always return immediately, and will either immediately
+     start a transaction, defer one to be started when the previous (write or read) transaction
+     completes, or return an error instead of deferring a second pending transaction. since the
+     average rate of completion of write transactions has hard real-time requirements, there is
+     no point in allowing more than one to be deferred */
+    if (-1 == psram_write(data_out, address, sizeof(data_out), &write_finished)) {
+        write_finished += sizeof(data_out);
+        fail_count++;
+    }
 }
 
-static void write_finish(void) {
-    const unsigned long micros_before_spin = micros();
-    while (__DSB(), write_finished != write_started) __WFI();
-    Serial.printf("%s: spun for %lu us\r\n", __func__, micros() - micros_before_spin);
+static void timer_init(void) {
+    /* make sure the APB is enabled for TC4 */
+    MCLK->APBCMASK.reg |= MCLK_APBCMASK_TC4;
+
+    /* use the 48 MHz clock peripheral */
+    GCLK->PCHCTRL[TC4_GCLK_ID].reg = (F_CPU == 48000000 ? GCLK_PCHCTRL_GEN_GCLK0 : GCLK_PCHCTRL_GEN_GCLK1) | GCLK_PCHCTRL_CHEN;
+    while (GCLK->SYNCBUSY.reg);
+
+    /* reset the timer peripheral */
+    TC4->COUNT8.CTRLA.bit.SWRST = 1;
+    while (TC4->COUNT8.SYNCBUSY.bit.SWRST);
+
+    /* put the counter in 8-bit mode */
+    TC4->COUNT8.CTRLA.bit.MODE = TC_CTRLA_MODE_COUNT8_Val;
+
+    /* timer ticks will be input clock ticks divided by this prescaler value */
+    TC4->COUNT8.CTRLA.bit.PRESCALER = TC_CTRLA_PRESCALER_DIV1024_Val;
+
+    /* timer ticks to this value, inclusive, and then wraps to zero on the next tick */
+    TC4->COUNT8.PER.reg = 255;
+
+    NVIC_EnableIRQ(TC4_IRQn);
+    NVIC_SetPriority(TC4_IRQn, (1 << __NVIC_PRIO_BITS) - 1);
+
+    TC4->COUNT8.INTENSET.bit.OVF = 1;
+
+    TC4->COUNT8.CTRLA.bit.ENABLE = 1;
+    while (TC4->COUNT8.SYNCBUSY.bit.ENABLE);
 }
 
-static void read_start(void) {
-    /* put some text in the buffer to show if the transaction fails */
-    snprintf(data_in, sizeof(data_in), "fail");
+void TC4_Handler(void) {
+    if (!TC4->COUNT8.INTFLAG.bit.OVF) return;
+    TC4->COUNT8.INTFLAG.reg = TC_INTFLAG_OVF;
 
-    const unsigned address = read_started % 8388608;
-    read_started += sizeof(data_in);
-
-    const unsigned long micros_before_read = micros();
-
-    psram_read(data_in, address, sizeof(data_in), &read_finished);
-
-    Serial.printf("%s: psram_read() returned in %lu us\r\n", __func__, micros() - micros_before_read);
-}
-
-static void read_finish(void) {
-    /* and sleep until it finishes */
-    const unsigned long micros_before_spin = micros();
-    while (__DSB(), read_finished != read_started) __WFI();
-    Serial.printf("%s: spun for %lu us\r\n", __func__, micros() - micros_before_spin);
-
-    static unsigned counter = 0;
-    Serial.printf("%s: expected %u, read back: \"%s\"\r\n\r\n", __func__, counter++, data_in);
+    static unsigned slowdown = 0;
+    slowdown++;
+    if (92 == slowdown) {
+        slowdown = 0;
+        write_start();
+    }
 }
 
 void setup() {
@@ -57,24 +78,60 @@ void setup() {
     Serial.printf("hello\r\n");
 
     psram_init();
-
-    /* do one write before looping */
-    write_start();
+    timer_init();
 }
 
 void loop() {
-    /* wait for previous write to finish (should not block due to the delay) */
-    write_finish();
+    /* these are set in one part of the main thread and read elsewhere */
+    static size_t read_started, read_acknowledged;
 
-    /* initiate read of the previous write */
-    read_start();
+    /* this is written by an interrupt handler and waited on by the main thread, and needs __DSB() */
+    static size_t read_finished;
 
-    /* immediately attempt to write - this should return immediately, having enqueued
-     the transaction such that the write starts when the read finishes */
-    write_start();
+    static char data_in[2048];
 
-    /* wait for the read to finish */
-    read_finish();
+    static unsigned fail_count_acknowledged;
 
-    delay(1000);
+    if (__DSB(), fail_count != fail_count_acknowledged) {
+        fail_count_acknowledged = fail_count;
+        Serial.printf("%s: fail count now %u\r\n", __func__, fail_count_acknowledged);
+    }
+
+    /* if we had initiated a read and it is now finished... */
+    if (__DSB(), read_acknowledged != read_finished) {
+        static unsigned counter = 0;
+        Serial.printf("%s: expected %u, read back: \"%s\"\r\n\r\n", __func__, counter++, data_in);
+
+        read_acknowledged = read_finished;
+    }
+
+    __DSB();
+    const size_t write_finished_now = write_finished;
+
+    if (read_acknowledged == read_started && write_finished_now - read_started > PSRAM_SIZE - 2 * sizeof(data_in)) {
+        read_started = write_finished_now - 2 * sizeof(data_in) - PSRAM_SIZE;
+        const size_t bytes_skipped = read_started - read_finished;
+        read_finished = read_started;
+        read_acknowledged = read_started;
+        fail_count += bytes_skipped / sizeof(data_in);
+    }
+
+    /* if the previous read has finished, and the writer has finished a newer write... */
+    if (__DSB(), read_acknowledged == read_started && read_started != write_finished) {
+        /* put some text in the buffer to show if the transaction fails */
+        snprintf(data_in, sizeof(data_in), "fail");
+
+        const unsigned address = read_started % PSRAM_SIZE;
+        read_started += sizeof(data_in);
+
+        const unsigned long micros_before_read = micros();
+
+        psram_read(data_in, address, sizeof(data_in), &read_finished);
+
+        Serial.printf("%s: %u, %u, psram_read() returned in %lu us\r\n", __func__,
+            (unsigned)read_started, (unsigned)write_finished, micros() - micros_before_read);
+    }
+
+    /* wait for something to change */
+    __WFI();
 }
