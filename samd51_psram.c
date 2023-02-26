@@ -29,18 +29,20 @@ static void init(void) {
     PORT->Group[0].PINCFG[18] = (PORT_PINCFG_Type) { .bit = { .PMUXEN = 1, .INEN = 1 } };
     PORT->Group[0].PMUX[18 >> 1].bit.PMUXE = 0x3;
 
-    /* reset spi peripheral */
-    SERCOM3->SPI.CTRLA.bit.SWRST = 1;
-    while (SERCOM3->SPI.CTRLA.bit.SWRST || SERCOM3->SPI.SYNCBUSY.bit.SWRST);
-
     /* clear all interrupts */
     NVIC_ClearPendingIRQ(SERCOM3_1_IRQn);
+
+    MCLK->APBBMASK.reg |= MCLK_APBBMASK_SERCOM3;
 
     /* core clock */
     GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].bit.CHEN = 0;
     while (GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].bit.CHEN);
     GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].reg = GCLK_PCHCTRL_GEN_GCLK1_Val | (1 << GCLK_PCHCTRL_CHEN_Pos);
     while (!GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].bit.CHEN);
+
+    /* reset spi peripheral */
+    SERCOM3->SPI.CTRLA.bit.SWRST = 1;
+    while (SERCOM3->SPI.CTRLA.bit.SWRST || SERCOM3->SPI.SYNCBUSY.bit.SWRST);
 
     SERCOM3->SPI.CTRLA = (SERCOM_SPI_CTRLA_Type) { .bit = {
         .MODE = 0x3, /* spi peripheral is in master mode */
