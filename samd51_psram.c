@@ -325,6 +325,7 @@ void SERCOM3_1_Handler(void) {
     /* raise ss pin */
     PORT->Group[0].OUTSET.reg = 1U << 20;
 
+    /* we get here when completing a write OR read, but this can only be non-NULL for a write */
     if (write_increment_when_done_p) {
         *write_increment_when_done_p += write_count_in_progress;
         write_increment_when_done_p = NULL;
@@ -337,7 +338,7 @@ void SERCOM3_1_Handler(void) {
         psram_write_unlocked(deferred_write_data, deferred_write_address, deferred_write_count, deferred_write_increment_when_done_p);
 
         /* make sure the above reads of deferred_write_* values have completed before we clear this,
-         because the main thread may change the above-references values as soon as this is NULL */
+         because the main thread may change the above-referenced values as soon as this is NULL */
         __DSB();
         deferred_write_data = NULL;
     }
