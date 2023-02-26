@@ -129,7 +129,7 @@ static unsigned long deferred_write_address;
 static size_t deferred_write_count;
 static size_t * deferred_write_increment_when_done_p = NULL;
 
-static void psram_write_unlocked(const void * const data, const unsigned long address, const size_t count, size_t * increment_when_done_p) {
+static int psram_write_unlocked(const void * const data, const unsigned long address, const size_t count, size_t * increment_when_done_p) {
     /* assume we cannot get here unless busy was logically zero */
     busy = 1;
     write_count_in_progress = count;
@@ -179,22 +179,27 @@ static void psram_write_unlocked(const void * const data, const unsigned long ad
 
     /* setting this starts the transaction */
     DMAC->Channel[ICHANNEL_SPI_WRITE].CHCTRLA.bit.ENABLE = 1;
+
+    return 0;
 }
 
-void psram_write(const void * const data, const unsigned long address, const size_t count, size_t * const increment_when_done_p) {
+int psram_write(const void * const data, const unsigned long address, const size_t count, size_t * const increment_when_done_p) {
     /* in the use case where one of these is initiated by an interrupt handler at regular intervals
      shorter than the expected length of a write, but read access is initiated irregularly from the
      main thread, we want writes to never block. therefore we will allow one write to be deferred
      and automatically initiated when the read is finished */
-    if (!busy) psram_write_unlocked(data, address, count, increment_when_done_p);
-    else {
-        /* spinloop if more than one deferred write is attempted */
-        while (__DSB(), deferred_write_data);
+    if (!busy) return psram_write_unlocked(data, address, count, increment_when_done_p);
 
+    /* fail if more than one deferred write is attempted */
+    else if (deferred_write_data) return -1;
+
+    else {
         deferred_write_address = address;
         deferred_write_count = count;
         deferred_write_data = data;
         deferred_write_increment_when_done_p = increment_when_done_p;
+
+        return 0;
     }
 }
 
