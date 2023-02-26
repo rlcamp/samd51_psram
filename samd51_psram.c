@@ -1,8 +1,9 @@
 #include "samd51_psram.h"
 #include <samd.h>
+#include <assert.h>
 
-#define ICHANNEL_SPI_WRITE 2
-#define ICHANNEL_SPI_READ 3
+#define ICHANNEL_SPI_WRITE 3
+#define ICHANNEL_SPI_READ 4
 
 static void init(void) {
     static char initted = 0;
@@ -77,8 +78,9 @@ static void init(void) {
     }
 
     /* must agree with ICHANNEL_SPI_WRITE */
-    NVIC_EnableIRQ(DMAC_2_IRQn);
-    NVIC_SetPriority(DMAC_2_IRQn, (1 << __NVIC_PRIO_BITS) - 1);
+    static_assert(3 == ICHANNEL_SPI_WRITE, "dmac channel isr mismatch");
+    NVIC_EnableIRQ(DMAC_3_IRQn);
+    NVIC_SetPriority(DMAC_3_IRQn, (1 << __NVIC_PRIO_BITS) - 1);
 
     /* reset channel */
     DMAC->Channel[ICHANNEL_SPI_WRITE].CHCTRLA.bit.ENABLE = 0;
@@ -94,8 +96,9 @@ static void init(void) {
     DMAC->Channel[ICHANNEL_SPI_WRITE].CHINTENSET.bit.TCMPL = 1; /* fire interrupt on completion (defined in descriptor) */
 
     /* must agree with ICHANNEL_SPI_READ */
-    NVIC_EnableIRQ(DMAC_3_IRQn);
-    NVIC_SetPriority(DMAC_3_IRQn, (1 << __NVIC_PRIO_BITS) - 1);
+    static_assert(4 == ICHANNEL_SPI_READ, "dmac channel isr mismatch");
+    NVIC_EnableIRQ(DMAC_4_IRQn);
+    NVIC_SetPriority(DMAC_4_IRQn, (1 << __NVIC_PRIO_BITS) - 1);
 
     /* reset channel */
     DMAC->Channel[ICHANNEL_SPI_READ].CHCTRLA.bit.ENABLE = 0;
@@ -284,7 +287,8 @@ void psram_read(void * const data, const unsigned long address, const size_t cou
 }
 
 /* note these interrupt handlers cannot have static linkage */
-void DMAC_3_Handler(void) {
+static_assert(4 == ICHANNEL_SPI_READ, "dmac channel isr mismatch");
+void DMAC_4_Handler(void) {
     /* fires when a read transaction is finished */
     const size_t ic = DMAC->INTPEND.bit.ID;
     /* neither of these should ever happen if interrupts were configured properly  */
@@ -298,7 +302,8 @@ void DMAC_3_Handler(void) {
     }
 }
 
-void DMAC_2_Handler(void) {
+static_assert(3 == ICHANNEL_SPI_WRITE, "dmac channel isr mismatch");
+void DMAC_3_Handler(void) {
     /* fires when the last outgoing byte has been enqueued */
     const size_t ic = DMAC->INTPEND.bit.ID;
     /* neither of these should ever happen if interrupts were configured properly  */
