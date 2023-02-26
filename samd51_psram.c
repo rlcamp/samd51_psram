@@ -181,19 +181,16 @@ void psram_write(const void * const data, const unsigned long address, const siz
      shorter than the expected length of a write, but read access is initiated irregularly from the
      main thread, we want writes to never block. therefore we will allow one write to be deferred
      and automatically initiated when the read is finished */
-    if (busy) {
-        /* if multiple consecutive writes are attempted, they will block, but the calling code
-         wouldn't be in an interrupt handler in that scenario */
+    if (!busy) psram_write_unlocked(data, address, count, busy_p);
+    else {
+        /* spinloop if more than one deferred write is attempted */
         while (deferred_write_data);
 
         deferred_write_address = address;
         deferred_write_count = count;
         deferred_write_data = data;
         deferred_write_busy_p = busy_p;
-        return;
     }
-
-    psram_write_unlocked(data, address, count, busy_p);
 }
 
 void psram_read(void * const data, const unsigned long address, const size_t count, volatile char * const busy_p) {
