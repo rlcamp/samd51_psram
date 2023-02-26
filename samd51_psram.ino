@@ -1,6 +1,8 @@
 #include "samd51_psram.h"
 
 static size_t write_started, read_started;
+
+/* note these are NOT volatile, when spinning on them a __DSB() should be included in the loop */
 static size_t write_finished, read_finished;
 
 static char data_out[1024], data_in[1024];
@@ -21,7 +23,7 @@ static void write_start(void) {
 
 static void write_finish(void) {
     const unsigned long micros_before_spin = micros();
-    while (__DSB(), write_finished != write_started);
+    while (__DSB(), write_finished != write_started) __WFI();
     Serial.printf("%s: spun for %lu us\r\n", __func__, micros() - micros_before_spin);
 }
 
@@ -42,7 +44,7 @@ static void read_start(void) {
 static void read_finish(void) {
     /* and sleep until it finishes */
     const unsigned long micros_before_spin = micros();
-    while (__DSB(), read_finished != read_started);
+    while (__DSB(), read_finished != read_started) __WFI();
     Serial.printf("%s: spun for %lu us\r\n", __func__, micros() - micros_before_spin);
 
     static unsigned counter = 0;
