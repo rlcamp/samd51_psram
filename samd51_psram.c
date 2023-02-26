@@ -181,8 +181,8 @@ static void psram_write_unlocked(const void * const data, const unsigned long ad
 
 void psram_write(const void * const data, const unsigned long address, const size_t count, volatile char * const busy_p) {
     /* in the use case where one of these is initiated by an interrupt handler at regular intervals
-     shorter than the expected length of a write, but read access is initiate irregularly from the
-     main thread, we want writes to never block. therefore we wil allow one write to be deferred
+     shorter than the expected length of a write, but read access is initiated irregularly from the
+     main thread, we want writes to never block. therefore we will allow one write to be deferred
      and automatically initiated when the read is finished */
     if (busy) {
         /* if multiple consecutive writes are attempted, they will block, but the calling code
