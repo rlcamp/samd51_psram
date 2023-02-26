@@ -110,10 +110,9 @@ void loop() {
 
     if (read_acknowledged == read_started && write_finished_now - read_started > PSRAM_SIZE - 2 * sizeof(data_in)) {
         read_started = write_finished_now - 2 * sizeof(data_in) - PSRAM_SIZE;
-        const size_t bytes_skipped = read_started - read_finished;
+        Serial.printf("%s: reader fell too far behind, skipping %u blocks\r\n", (read_started - read_finished) / sizeof(data_in));
         read_finished = read_started;
         read_acknowledged = read_started;
-        fail_count += bytes_skipped / sizeof(data_in);
     }
 
     /* if the previous read has finished, and the writer has finished a newer write... */
