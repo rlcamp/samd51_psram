@@ -111,6 +111,10 @@ void psram_init(void) {
     DMAC->Channel[ICHANNEL_SPI_READ].CHCTRLA.bit.TRIGACT = DMAC_CHCTRLA_TRIGACT_BURST_Val; /* transfer one byte when triggered */
     DMAC->Channel[ICHANNEL_SPI_READ].CHCTRLA.bit.BURSTLEN = DMAC_CHCTRLA_BURSTLEN_SINGLE_Val; /* one burst = one beat */
     DMAC->Channel[ICHANNEL_SPI_READ].CHINTENSET.bit.TCMPL = 1; /* fire interrupt on completion (defined in descriptor) */
+
+    /* enable spi peripheral */
+    SERCOM3->SPI.CTRLA.bit.ENABLE = 1;
+    while (SERCOM3->SPI.SYNCBUSY.bit.ENABLE);
 }
 
 static volatile char busy = 0;
@@ -129,10 +133,6 @@ static void psram_write_unlocked(const void * const data, const unsigned long ad
     /* make sure the spi receiver is disabled */
     SERCOM3->SPI.CTRLB.bit.RXEN = 0;
     while (SERCOM3->SPI.SYNCBUSY.bit.CTRLB);
-
-    /* enable spi peripheral */
-    SERCOM3->SPI.CTRLA.bit.ENABLE = 1;
-    while (SERCOM3->SPI.SYNCBUSY.bit.ENABLE);
 
     /* lower ss pin */
     PORT->Group[0].OUTCLR.reg = 1U << 20;
@@ -199,10 +199,6 @@ void psram_read(void * const data, const unsigned long address, const size_t cou
 
     busy = 1;
     read_busy_p = busy_p;
-
-    /* enable spi peripheral */
-    SERCOM3->SPI.CTRLA.bit.ENABLE = 1;
-    while (SERCOM3->SPI.SYNCBUSY.bit.ENABLE);
 
     /* make sure the spi receiver is disabled */
     SERCOM3->SPI.CTRLB.bit.RXEN = 1;
@@ -321,9 +317,6 @@ void SERCOM3_1_Handler(void) {
 
     /* raise ss pin */
     PORT->Group[0].OUTSET.reg = 1U << 20;
-
-//    SERCOM3->SPI.CTRLA.bit.ENABLE = 0;
-    while (SERCOM3->SPI.SYNCBUSY.bit.ENABLE);
 
     if (write_busy_p) {
         *write_busy_p = 0;
