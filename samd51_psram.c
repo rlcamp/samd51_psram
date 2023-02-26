@@ -323,16 +323,14 @@ void SERCOM3_1_Handler(void) {
         write_busy_p = NULL;
     }
 
-    /* if there is a pending write, start it without lowering the busy flag */
-    if (deferred_write_data) {
-        const void * data = deferred_write_data;
+    const void * const data = deferred_write_data;
+
+    /* if no additional pending write, notify main thread that transmitting has finished */
+    if (!data) busy = 0;
+    else {
+        /* otherwise consume the pending write, and start it without having lowered the busy flag */
         deferred_write_data = NULL;
 
         psram_write_unlocked(data, deferred_write_address, deferred_write_count, deferred_write_busy_p);
-
-        return;
     }
-
-    /* notify main thread that transmitting has finished */
-    busy = 0;
 }
