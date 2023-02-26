@@ -167,6 +167,9 @@ static void psram_write_unlocked(const void * const data, const unsigned long ad
         }
     };
 
+    /* make sure dma descriptor update has completed prior to enabling */
+    __DSB();
+
     DMAC->Channel[ICHANNEL_SPI_READ].CHCTRLA.bit.ENABLE = 0;
 
     /* setting this starts the transaction */
