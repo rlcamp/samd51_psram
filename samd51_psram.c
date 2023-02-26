@@ -118,17 +118,21 @@ void psram_init(void) {
 }
 
 static volatile char busy = 0;
-static volatile char * read_busy_p = NULL;
-static volatile char * write_busy_p = NULL;
+
+static size_t read_count_in_progress = 0;
+static volatile size_t * read_increment_when_done_p = NULL;
+static size_t write_count_in_progress = 0;
+static volatile size_t * write_increment_when_done_p = NULL;
 
 static const void * volatile deferred_write_data = NULL;
 static unsigned long deferred_write_address;
 static size_t deferred_write_count;
-static volatile char * deferred_write_busy_p;
+static volatile size_t * deferred_write_increment_when_done_p = NULL;
 
-static void psram_write_unlocked(const void * const data, const unsigned long address, const size_t count, volatile char * busy_p) {
+static void psram_write_unlocked(const void * const data, const unsigned long address, const size_t count, volatile size_t * increment_when_done_p) {
     busy = 1;
-    write_busy_p = busy_p;
+    write_count_in_progress = count;
+    write_increment_when_done_p = increment_when_done_p;
 
     /* make sure the spi receiver is disabled */
     SERCOM3->SPI.CTRLB.bit.RXEN = 0;
@@ -176,12 +180,12 @@ static void psram_write_unlocked(const void * const data, const unsigned long ad
     DMAC->Channel[ICHANNEL_SPI_WRITE].CHCTRLA.bit.ENABLE = 1;
 }
 
-void psram_write(const void * const data, const unsigned long address, const size_t count, volatile char * const busy_p) {
+void psram_write(const void * const data, const unsigned long address, const size_t count, volatile size_t * const increment_when_done_p) {
     /* in the use case where one of these is initiated by an interrupt handler at regular intervals
      shorter than the expected length of a write, but read access is initiated irregularly from the
      main thread, we want writes to never block. therefore we will allow one write to be deferred
      and automatically initiated when the read is finished */
-    if (!busy) psram_write_unlocked(data, address, count, busy_p);
+    if (!busy) psram_write_unlocked(data, address, count, increment_when_done_p);
     else {
         /* spinloop if more than one deferred write is attempted */
         while (deferred_write_data);
@@ -189,16 +193,18 @@ void psram_write(const void * const data, const unsigned long address, const siz
         deferred_write_address = address;
         deferred_write_count = count;
         deferred_write_data = data;
-        deferred_write_busy_p = busy_p;
+        deferred_write_increment_when_done_p = increment_when_done_p;
     }
 }
 
-void psram_read(void * const data, const unsigned long address, const size_t count, volatile char * const busy_p) {
+void psram_read(void * const data, const unsigned long address, const size_t count, volatile size_t * const increment_when_done_p) {
     /* wait for previous send to finish */
     while (busy) __WFI();
 
     busy = 1;
-    read_busy_p = busy_p;
+
+    read_count_in_progress = count;
+    read_increment_when_done_p = increment_when_done_p;
 
     /* make sure the spi receiver is disabled */
     SERCOM3->SPI.CTRLB.bit.RXEN = 1;
@@ -288,9 +294,9 @@ void DMAC_4_Handler(void) {
     DMAC->Channel[ic].CHINTFLAG.reg = DMAC_CHINTENCLR_TCMPL;
 
     /* notify main thread that receiving has finished */
-    if (read_busy_p) {
-        *read_busy_p = 0;
-        read_busy_p = NULL;
+    if (read_increment_when_done_p) {
+        *read_increment_when_done_p += read_count_in_progress;
+        read_increment_when_done_p = NULL;
     }
 }
 
@@ -318,9 +324,9 @@ void SERCOM3_1_Handler(void) {
     /* raise ss pin */
     PORT->Group[0].OUTSET.reg = 1U << 20;
 
-    if (write_busy_p) {
-        *write_busy_p = 0;
-        write_busy_p = NULL;
+    if (write_increment_when_done_p) {
+        *write_increment_when_done_p += write_count_in_progress;
+        write_increment_when_done_p = NULL;
     }
 
     const void * const data = deferred_write_data;
@@ -331,6 +337,6 @@ void SERCOM3_1_Handler(void) {
         /* otherwise consume the pending write, and start it without having lowered the busy flag */
         deferred_write_data = NULL;
 
-        psram_write_unlocked(data, deferred_write_address, deferred_write_count, deferred_write_busy_p);
+        psram_write_unlocked(data, deferred_write_address, deferred_write_count, deferred_write_increment_when_done_p);
     }
 }

@@ -1,25 +1,28 @@
 #include "samd51_psram.h"
 
+static size_t write_started, read_started;
+static volatile size_t write_finished, read_finished;
+
 static volatile char read_busy, write_busy;
 static char data_out[1024], data_in[1024];
 
 static void write_start(void) {
     static unsigned counter = 0;
-    snprintf(data_out, sizeof(data_out), "pass %u", counter);
+    snprintf(data_out, sizeof(data_out), "pass %u", counter++);
 
-    const unsigned address = (counter++ * 1024) % 8388608;
+    const unsigned address = write_started % 8388608;
+    write_started += sizeof(data_out);
 
     const unsigned long micros_before_write = micros();
 
-    write_busy = 1;
-    psram_write(data_out, address, sizeof(data_out), &write_busy);
+    psram_write(data_out, address, sizeof(data_out), &write_finished);
 
     Serial.printf("%s: psram_write() returned in %lu us\r\n", __func__, micros() - micros_before_write);
 }
 
 static void write_finish(void) {
     const unsigned long micros_before_spin = micros();
-    while (write_busy);
+    while (write_finished != write_started);
     Serial.printf("%s: spun for %lu us\r\n", __func__, micros() - micros_before_spin);
 }
 
@@ -27,13 +30,12 @@ static void read_start(void) {
     /* put some text in the buffer to show if the transaction fails */
     snprintf(data_in, sizeof(data_in), "fail");
 
-    static unsigned counter = 0;
-    const unsigned address = (counter++ * 1024) % 8388608;
+    const unsigned address = read_started % 8388608;
+    read_started += sizeof(data_in);
 
     const unsigned long micros_before_read = micros();
 
-    read_busy = 1;
-    psram_read(data_in, address, sizeof(data_in), &read_busy);
+    psram_read(data_in, address, sizeof(data_in), &read_finished);
 
     Serial.printf("%s: psram_read() returned in %lu us\r\n", __func__, micros() - micros_before_read);
 }
@@ -41,7 +43,7 @@ static void read_start(void) {
 static void read_finish(void) {
     /* and sleep until it finishes */
     const unsigned long micros_before_spin = micros();
-    while (read_busy);
+    while (read_finished != read_started);
     Serial.printf("%s: spun for %lu us\r\n", __func__, micros() - micros_before_spin);
 
     static unsigned counter = 0;
