@@ -126,6 +126,13 @@ void loop() {
         snprintf(data_in, sizeof(data_in), "fail");
 
         const unsigned address = read_started % PSRAM_SIZE;
+
+        if (read_started == 16384) {
+            Serial.printf("%s: delaying for a while to simulate a temporarily slow reader\r\n", __func__);
+            Serial.flush();
+            delay(5000);
+        }
+
         read_started += sizeof(data_in);
 
         const unsigned long micros_before_read = micros();
