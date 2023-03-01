@@ -2,7 +2,8 @@
 #include <samd.h>
 #include <assert.h>
 
-#define ICHANNEL_SPI_WRITE 3
+/* use dma channels that have the same interrupt, so as to place nice with more critical stuff */
+#define ICHANNEL_SPI_WRITE 5
 #define ICHANNEL_SPI_READ 4
 
 __attribute__((weak, aligned(16))) SECTION_DMAC_DESCRIPTOR DmacDescriptor dmac_descriptors[8] = { 0 }, dmac_writeback[8] = { 0 };
@@ -75,11 +76,6 @@ void psram_init(void) {
         /* re-enable dmac */
         DMAC->CTRL.reg = DMAC_CTRL_DMAENABLE | DMAC_CTRL_LVLEN(0xF);
     }
-
-    /* must agree with ICHANNEL_SPI_WRITE */
-    static_assert(3 == ICHANNEL_SPI_WRITE, "dmac channel isr mismatch");
-    NVIC_EnableIRQ(DMAC_3_IRQn);
-    NVIC_SetPriority(DMAC_3_IRQn, (1 << __NVIC_PRIO_BITS) - 1);
 
     /* reset channel */
     DMAC->Channel[ICHANNEL_SPI_WRITE].CHCTRLA.bit.ENABLE = 0;
@@ -292,32 +288,32 @@ void psram_read(void * const data, const unsigned long address, const size_t cou
 
 /* note these interrupt handlers cannot have static linkage */
 static_assert(4 == ICHANNEL_SPI_READ, "dmac channel isr mismatch");
+static_assert(5 == ICHANNEL_SPI_WRITE, "dmac channel isr mismatch");
+
+/* dma channels 4 through 31 all share the same interrupt */
 void DMAC_4_Handler(void) {
-    /* fires when a read transaction is finished */
     const size_t ic = DMAC->INTPEND.bit.ID;
-    /* neither of these should ever happen if interrupts were configured properly  */
-    if (ic != ICHANNEL_SPI_READ || !(DMAC->Channel[ic].CHINTFLAG.reg & DMAC_CHINTENCLR_TCMPL)) return;
+    if (!(DMAC->Channel[ic].CHINTFLAG.reg & DMAC_CHINTENCLR_TCMPL)) return; /* should never happen */
     DMAC->Channel[ic].CHINTFLAG.reg = DMAC_CHINTENCLR_TCMPL;
 
-    /* notify main thread that receiving has finished */
-    if (read_increment_when_done_p) {
-        *read_increment_when_done_p += read_count_in_progress;
-        read_increment_when_done_p = NULL;
+    if (ICHANNEL_SPI_READ == ic) {
+      /* fires when a read transaction is finished */
+
+        /* notify main thread that receiving has finished */
+        if (read_increment_when_done_p) {
+            *read_increment_when_done_p += read_count_in_progress;
+            read_increment_when_done_p = NULL;
+        }
     }
-}
 
-static_assert(3 == ICHANNEL_SPI_WRITE, "dmac channel isr mismatch");
-void DMAC_3_Handler(void) {
-    /* fires when the last outgoing byte has been enqueued */
-    const size_t ic = DMAC->INTPEND.bit.ID;
-    /* neither of these should ever happen if interrupts were configured properly  */
-    if (ic != ICHANNEL_SPI_WRITE || !(DMAC->Channel[ic].CHINTFLAG.reg & DMAC_CHINTENCLR_TCMPL)) return;
-    DMAC->Channel[ic].CHINTFLAG.reg = DMAC_CHINTENCLR_TCMPL;
+    else if (ICHANNEL_SPI_WRITE == ic) {
+        /* fires when the last outgoing byte has been enqueued */
 
-    /* enable the txc interrupt (which will fire when the final byte finishes) */
-    NVIC_ClearPendingIRQ(SERCOM3_1_IRQn);
-    SERCOM3->SPI.INTENSET.bit.TXC = 1;
-    NVIC_EnableIRQ(SERCOM3_1_IRQn);
+        /* enable the txc interrupt (which will fire when the final byte finishes) */
+        NVIC_ClearPendingIRQ(SERCOM3_1_IRQn);
+        SERCOM3->SPI.INTENSET.bit.TXC = 1;
+        NVIC_EnableIRQ(SERCOM3_1_IRQn);
+    }
 }
 
 void SERCOM3_1_Handler(void) {
