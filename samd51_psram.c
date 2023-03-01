@@ -294,10 +294,10 @@ static_assert(5 == ICHANNEL_SPI_WRITE, "dmac channel isr mismatch");
 void DMAC_4_Handler(void) {
     const size_t ic = DMAC->INTPEND.bit.ID;
     if (!(DMAC->Channel[ic].CHINTFLAG.reg & DMAC_CHINTENCLR_TCMPL)) return; /* should never happen */
-    DMAC->Channel[ic].CHINTFLAG.reg = DMAC_CHINTENCLR_TCMPL;
 
     if (ICHANNEL_SPI_READ == ic) {
       /* fires when a read transaction is finished */
+        DMAC->Channel[ic].CHINTFLAG.reg = DMAC_CHINTENCLR_TCMPL;
 
         /* notify main thread that receiving has finished */
         if (read_increment_when_done_p) {
@@ -308,6 +308,7 @@ void DMAC_4_Handler(void) {
 
     else if (ICHANNEL_SPI_WRITE == ic) {
         /* fires when the last outgoing byte has been enqueued */
+        DMAC->Channel[ic].CHINTFLAG.reg = DMAC_CHINTENCLR_TCMPL;
 
         /* enable the txc interrupt (which will fire when the final byte finishes) */
         NVIC_ClearPendingIRQ(SERCOM3_1_IRQn);
