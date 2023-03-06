@@ -216,7 +216,7 @@ void psram_read(void * const data, const unsigned long address, const size_t cou
     read_count_in_progress = count;
     read_increment_when_done_p = increment_when_done_p;
 
-    /* make sure the spi receiver is disabled */
+    /* make sure the spi receiver is enabled */
     SERCOM3->SPI.CTRLB.bit.RXEN = 1;
     while (SERCOM3->SPI.SYNCBUSY.bit.CTRLB);
 
