@@ -1,5 +1,13 @@
 #include "samd51_psram.h"
+
+#ifdef NON_ANCIENT_HEADER_PATHS
+/* newer cmsis-atmel from upstream */
+#include <samd51j19a.h>
+#else
+/* older cmsis-atmel from adafruit */
 #include <samd.h>
+#endif
+
 #include <assert.h>
 
 /* use dma channels that have the same interrupt, so as to place nice with more critical stuff */
