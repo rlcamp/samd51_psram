@@ -78,7 +78,6 @@ void setup() {
     Serial.printf("hello\r\n");
 
     psram_init();
-    timer_init();
 
     const size_t passes = 4096;
     const unsigned long micros_before = micros();
@@ -101,6 +100,7 @@ void setup() {
     const unsigned long elapsed = micros() - micros_before;
     Serial.printf("%s: %lu us per pass, %lu failures\n\n", __func__, (elapsed + passes / 2) / passes, write_fail_count);
 
+    timer_init();
 }
 
 void loop() {
