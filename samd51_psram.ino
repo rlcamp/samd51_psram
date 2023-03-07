@@ -79,6 +79,28 @@ void setup() {
 
     psram_init();
     timer_init();
+
+    const size_t passes = 4096;
+    const unsigned long micros_before = micros();
+    for (size_t ipass = 0, finished = (size_t)-1; ipass < passes; ipass++) {
+        static char data_out[2048];
+
+        const unsigned address = (ipass % (PSRAM_SIZE / sizeof(data_out))) * sizeof(data_out);
+
+        /* attempt to enqueue a write. this will always return immediately, and will either immediately
+        start a transaction, defer one to be started when the previous (write or read) transaction
+        completes, or return an error instead of deferring a second pending transaction. since the
+        average rate of completion of write transactions has hard real-time requirements, there is
+        no point in allowing more than one to be deferred */
+        if (-1 == psram_write(data_out, address, sizeof(data_out), &finished)) {
+            finished++;
+            write_fail_count++;
+        }
+        while (*((volatile size_t *)&finished) != ipass);
+    }
+    const unsigned long elapsed = micros() - micros_before;
+    Serial.printf("%s: %lu us per pass, %lu failures\n\n", __func__, (elapsed + passes / 2) / passes, write_fail_count);
+
 }
 
 void loop() {
