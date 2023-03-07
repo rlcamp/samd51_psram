@@ -16,8 +16,8 @@ static void write_start(void) {
     snprintf(data_out, sizeof(data_out), "pass %u", counter++);
 
     static size_t write_started = 0;
-    const unsigned address = write_started % PSRAM_SIZE;
-    write_started += sizeof(data_out);
+    const unsigned address = (write_started % (PSRAM_SIZE / sizeof(data_out))) * sizeof(data_out);
+    write_started++;
 
     /* attempt to enqueue a write. this will always return immediately, and will either immediately
      start a transaction, defer one to be started when the previous (write or read) transaction
@@ -25,7 +25,7 @@ static void write_start(void) {
      average rate of completion of write transactions has hard real-time requirements, there is
      no point in allowing more than one to be deferred */
     if (-1 == psram_write(data_out, address, sizeof(data_out), &write_finished)) {
-        write_finished += sizeof(data_out);
+        write_finished++;
         write_fail_count++;
     }
 }
@@ -112,9 +112,9 @@ void loop() {
     }
 
     /* if we know we have fallen too far behind to catch up, skip some and print a warning */
-    if (read_acknowledged == read_started && write_finished_now - read_started > PSRAM_SIZE - 2 * sizeof(data_in)) {
-        const size_t skipped_count = (write_finished_now - 2 * sizeof(data_in) - PSRAM_SIZE) - read_started;
-        Serial.printf("%s: reader fell too far behind, skipping %u blocks\r\n", skipped_count / sizeof(data_in));
+    if (read_acknowledged == read_started && write_finished_now - read_started > PSRAM_SIZE / sizeof(data_in) - 2) {
+        const size_t skipped_count = (write_finished_now - 2 - PSRAM_SIZE / sizeof(data_in)) - read_started;
+        Serial.printf("%s: reader fell too far behind, skipping %u blocks\r\n", skipped_count);
         read_started += skipped_count;
         read_finished = read_started;
         read_acknowledged = read_started;
@@ -125,22 +125,22 @@ void loop() {
         /* put some text in the buffer to show if the transaction fails */
         snprintf(data_in, sizeof(data_in), "fail");
 
-        const unsigned address = read_started % PSRAM_SIZE;
+        const unsigned address = (read_started % (PSRAM_SIZE / sizeof(data_in))) * sizeof(data_in);
 
-        if (read_started == 16384) {
+        if (read_started == 8) {
             Serial.printf("%s: delaying for a while to simulate a temporarily slow reader\r\n", __func__);
             Serial.flush();
             delay(5000);
         }
 
-        read_started += sizeof(data_in);
+        read_started++;
 
         const unsigned long micros_before_read = micros();
 
         psram_read(data_in, address, sizeof(data_in), &read_finished);
 
         Serial.printf("%s: psram_read(%u) returned in %lu us\r\n", __func__,
-            (unsigned)read_started, micros() - micros_before_read);
+            address, micros() - micros_before_read);
     }
 
     /* wait for something to change */

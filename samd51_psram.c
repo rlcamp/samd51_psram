@@ -123,9 +123,7 @@ void psram_init(void) {
 
 static char busy = 0;
 
-static size_t read_count_in_progress = 0;
 static size_t * read_increment_when_done_p = NULL;
-static size_t write_count_in_progress = 0;
 static size_t * write_increment_when_done_p = NULL;
 
 static const void * deferred_write_data = NULL;
@@ -136,7 +134,6 @@ static size_t * deferred_write_increment_when_done_p = NULL;
 static int psram_write_unlocked(const void * const data, const unsigned long address, const size_t count, size_t * increment_when_done_p) {
     /* assume we cannot get here unless busy was logically zero */
     busy = 1;
-    write_count_in_progress = count;
     write_increment_when_done_p = increment_when_done_p;
 
     /* make sure the spi receiver is disabled */
@@ -213,7 +210,6 @@ void psram_read(void * const data, const unsigned long address, const size_t cou
 
     busy = 1;
 
-    read_count_in_progress = count;
     read_increment_when_done_p = increment_when_done_p;
 
     /* make sure the spi receiver is enabled */
@@ -309,7 +305,7 @@ void DMAC_4_Handler(void) {
 
         /* notify main thread that receiving has finished */
         if (read_increment_when_done_p) {
-            *read_increment_when_done_p += read_count_in_progress;
+            (*read_increment_when_done_p)++;
             read_increment_when_done_p = NULL;
         }
     }
@@ -337,7 +333,7 @@ void SERCOM3_1_Handler(void) {
 
     /* we get here when completing a write OR read, but this can only be non-NULL for a write */
     if (write_increment_when_done_p) {
-        *write_increment_when_done_p += write_count_in_progress;
+        (*write_increment_when_done_p)++;
         write_increment_when_done_p = NULL;
     }
 
