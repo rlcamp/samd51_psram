@@ -36,9 +36,6 @@ void psram_init(void) {
     PORT->Group[0].PINCFG[18] = (PORT_PINCFG_Type) { .bit = { .PMUXEN = 1, .INEN = 1 } };
     PORT->Group[0].PMUX[18 >> 1].bit.PMUXE = 0x3;
 
-    /* clear all interrupts */
-    NVIC_ClearPendingIRQ(SERCOM3_1_IRQn);
-
     MCLK->APBBMASK.reg |= MCLK_APBBMASK_SERCOM3;
 
     /* core clock */
@@ -314,38 +311,28 @@ void DMAC_4_Handler(void) {
         /* fires when the last outgoing byte has been enqueued */
         DMAC->Channel[ic].CHINTFLAG.reg = DMAC_CHINTENCLR_TCMPL;
 
-        /* enable the txc interrupt (which will fire when the final byte finishes) */
-        NVIC_ClearPendingIRQ(SERCOM3_1_IRQn);
-        SERCOM3->SPI.INTENSET.bit.TXC = 1;
-        NVIC_EnableIRQ(SERCOM3_1_IRQn);
-    }
-}
+        /* spin for not more than 16 or 40 cycles (at 48 MHz or 120 MHz cpu respectively) */
+        while (!SERCOM3->SPI.INTFLAG.bit.TXC);
 
-void SERCOM3_1_Handler(void) {
-    /* fires when the last outgoing byte has finished being sent by the sercom */
-    /* disable and clear the txc interrupt */
-    SERCOM3->SPI.INTENCLR.bit.TXC = 1;
-    NVIC_DisableIRQ(SERCOM3_1_IRQn);
-    SERCOM3->SPI.INTFLAG.reg = SERCOM_SPI_INTFLAG_TXC;
+        /* raise ss pin */
+        PORT->Group[0].OUTSET.reg = 1U << 20;
 
-    /* raise ss pin */
-    PORT->Group[0].OUTSET.reg = 1U << 20;
+        /* we get here when completing a write OR read, but this can only be non-NULL for a write */
+        if (write_increment_when_done_p) {
+            (*write_increment_when_done_p)++;
+            write_increment_when_done_p = NULL;
+        }
 
-    /* we get here when completing a write OR read, but this can only be non-NULL for a write */
-    if (write_increment_when_done_p) {
-        (*write_increment_when_done_p)++;
-        write_increment_when_done_p = NULL;
-    }
+        /* if no additional pending write, notify main thread that transmitting has finished */
+        if (!deferred_write_data) busy = 0;
+        else {
+            /* otherwise consume the pending write, and start it without having lowered the busy flag */
+            psram_write_unlocked(deferred_write_data, deferred_write_address, deferred_write_count, deferred_write_increment_when_done_p);
 
-    /* if no additional pending write, notify main thread that transmitting has finished */
-    if (!deferred_write_data) busy = 0;
-    else {
-        /* otherwise consume the pending write, and start it without having lowered the busy flag */
-        psram_write_unlocked(deferred_write_data, deferred_write_address, deferred_write_count, deferred_write_increment_when_done_p);
-
-        /* make sure the above reads of deferred_write_* values have completed before we clear this,
-         because the main thread may change the above-referenced values as soon as this is NULL */
-        __DSB();
-        deferred_write_data = NULL;
+            /* make sure the above reads of deferred_write_* values have completed before we clear this,
+            because the main thread may change the above-referenced values as soon as this is NULL */
+            __DSB();
+            deferred_write_data = NULL;
+        }
     }
 }
