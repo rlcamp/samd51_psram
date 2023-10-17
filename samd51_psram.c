@@ -67,6 +67,28 @@ void psram_init(void) {
     const uint32_t baudrate = F_CPU / 4;
     SERCOM3->SPI.BAUD.reg = F_CPU / (2U * baudrate) - 1U;
 
+#if 1
+    /* enable spi peripheral */
+    SERCOM3->SPI.CTRLA.bit.ENABLE = 1;
+    while (SERCOM3->SPI.SYNCBUSY.bit.ENABLE);
+
+    /* lower ss pin */
+    PORT->Group[0].OUTCLR.reg = 1U << 20;
+
+    SERCOM3->SPI.DATA.reg = 0x66;
+    while (!SERCOM3->SPI.INTFLAG.bit.TXC);
+
+    SERCOM3->SPI.DATA.reg = 0x99;
+    while (!SERCOM3->SPI.INTFLAG.bit.TXC);
+
+    /* raise ss pin */
+    PORT->Group[0].OUTSET.reg = 1U << 20;
+
+    /* enable spi peripheral */
+    SERCOM3->SPI.CTRLA.bit.ENABLE = 0;
+    while (SERCOM3->SPI.SYNCBUSY.bit.ENABLE);
+#endif
+
     /* if dma has not yet been initted... */
     if (!DMAC->BASEADDR.bit.BASEADDR) {
         /* init ahb clock for dmac */
