@@ -38,10 +38,10 @@ void psram_init(void) {
 
     MCLK->APBBMASK.reg |= MCLK_APBBMASK_SERCOM3;
 
-    /* core clock */
+    /* unconditionally assume GCLK0 is running at F_CPU */
     GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].bit.CHEN = 0;
     while (GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].bit.CHEN);
-    GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].reg = (F_CPU == 48000000 ? GCLK_PCHCTRL_GEN_GCLK0 : GCLK_PCHCTRL_GEN_GCLK1) | GCLK_PCHCTRL_CHEN;
+    GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].reg = GCLK_PCHCTRL_GEN_GCLK0 | GCLK_PCHCTRL_CHEN;
     while (!GCLK->PCHCTRL[SERCOM3_GCLK_ID_CORE].bit.CHEN);
 
     /* reset spi peripheral */
@@ -62,10 +62,10 @@ void psram_init(void) {
         .MSSEN = 0, /* no hardware cs control */
         .CHSIZE = 0 /* eight bit characters */
     }};
-    while( SERCOM3->SPI.SYNCBUSY.bit.CTRLB);
+    while (SERCOM3->SPI.SYNCBUSY.bit.CTRLB);
 
-    const uint32_t baudrate = 24000000U;
-    SERCOM3->SPI.BAUD.reg = 48000000U / (2U * baudrate) - 1U;
+    const uint32_t baudrate = F_CPU / 4;
+    SERCOM3->SPI.BAUD.reg = F_CPU / (2U * baudrate) - 1U;
 
     /* if dma has not yet been initted... */
     if (!DMAC->BASEADDR.bit.BASEADDR) {
