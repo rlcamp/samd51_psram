@@ -81,9 +81,8 @@ void setup() {
 
     const size_t passes = 4096;
     const unsigned long micros_before = micros();
-    for (size_t ipass = 0, finished = (size_t)-1; ipass < passes; ipass++) {
-        static char data_out[2048];
-
+    for (size_t ipass = 0, finished = (size_t)-1, read_finished = (size_t)-1; ipass < passes; ipass++) {
+        static char data_out[1024] = "test test test test";
         const unsigned address = (ipass % (PSRAM_SIZE / sizeof(data_out))) * sizeof(data_out);
 
         /* attempt to enqueue a write. this will always return immediately, and will either immediately
@@ -96,12 +95,20 @@ void setup() {
             write_fail_count++;
         }
         while (*((volatile size_t *)&finished) != ipass);
+
+        static char data_in[1024];
+        psram_read(data_in, address, sizeof(data_in), &read_finished);
+        while (*((volatile size_t *)&read_finished) != ipass);
+
+        Serial.printf("%s: address: %u, read back: \"%s\"\r\n\r\n", __func__, address, data_in);
     }
     const unsigned long elapsed = micros() - micros_before;
     Serial.printf("%s: %lu us per pass, %lu failures\n\n", __func__, (elapsed + passes / 2) / passes, write_fail_count);
 
     timer_init();
 }
+
+void yield(void) { __WFI(); }
 
 void loop() {
     /* these are set in one part of the main thread and read elsewhere */
