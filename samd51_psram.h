@@ -7,7 +7,7 @@ extern "C" {
 void psram_init(void);
 
 /* each of these takes a pointer to a size_t, which will be incremented within an interrupt handler
- when the transaction is complete. the caller can safely __WFI() until the pointed-to variable
+ when the transaction is complete. the caller can safely __WFE() until the pointed-to variable
  reaches or exceeds the expected value */
 
 /* this function will not block as long as not more than one transaction (read or write) is already

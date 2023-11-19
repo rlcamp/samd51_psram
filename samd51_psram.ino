@@ -73,6 +73,7 @@ void TC4_Handler(void) {
 }
 
 void setup() {
+    SCB->SCR |= SCB_SCR_SEVONPEND_Msk;
     Serial.begin(115200);
     while (!Serial);
     Serial.printf("hello\r\n");
@@ -108,7 +109,7 @@ void setup() {
     timer_init();
 }
 
-void yield(void) { __WFI(); }
+void yield(void) { __DSB(); __WFE(); }
 
 void loop() {
     /* these are set in one part of the main thread and read elsewhere */
@@ -122,14 +123,14 @@ void loop() {
     static unsigned write_fail_count_acknowledged;
 
     /* grab local copies of the variables being updated by interrupts */
-    __DSB();
-    const size_t write_finished_now = write_finished;
-    const size_t read_finished_now = read_finished;
-    const size_t write_fail_count_now = write_fail_count;
+    const size_t write_finished_now = *(volatile size_t *)&write_finished;
+    const size_t read_finished_now = *(volatile size_t *)&read_finished;
+    const size_t write_fail_count_now = *(volatile size_t *)&write_fail_count;
 
     if (write_fail_count_now != write_fail_count_acknowledged) {
         write_fail_count_acknowledged = write_fail_count_now;
         Serial.printf("%s: fail count now %u\r\n", __func__, write_fail_count_acknowledged);
+        return;
     }
 
     /* if we had initiated a read and it is now finished... */
@@ -138,6 +139,7 @@ void loop() {
 
         static unsigned counter = 0;
         Serial.printf("%s: expected %u, read back: \"%s\"\r\n\r\n", __func__, counter++, data_in);
+        return;
     }
 
     /* if we know we have fallen too far behind to catch up, skip some and print a warning */
@@ -147,6 +149,7 @@ void loop() {
         read_started += skipped_count;
         read_finished = read_started;
         read_acknowledged = read_started;
+        return;
     }
 
     /* if the previous read has finished, and the writer has finished a newer write... */
@@ -170,8 +173,10 @@ void loop() {
 
         Serial.printf("%s: psram_read(%u) returned in %lu us\r\n", __func__,
             address, micros() - micros_before_read);
+        return;
     }
 
     /* wait for something to change */
-    __WFI();
+    __DSB();
+    __WFE();
 }

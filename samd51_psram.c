@@ -225,7 +225,7 @@ int psram_write(const void * const data, const unsigned long address, const size
 
 void psram_read(void * const data, const unsigned long address, const size_t count, size_t * const increment_when_done_p) {
     /* wait for previous send to finish */
-    while (__DSB(), busy) __WFI();
+    while (busy) { __DSB(); __WFE(); }
 
     busy = 1;
 
@@ -351,10 +351,8 @@ void DMAC_4_Handler(void) {
             /* otherwise consume the pending write, and start it without having lowered the busy flag */
             psram_write_unlocked(deferred_write_data, deferred_write_address, deferred_write_count, deferred_write_increment_when_done_p);
 
-            /* make sure the above reads of deferred_write_* values have completed before we clear this,
-            because the main thread may change the above-referenced values as soon as this is NULL */
-            __DSB();
             deferred_write_data = NULL;
         }
     }
+    __DSB();
 }
